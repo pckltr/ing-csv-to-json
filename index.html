@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>CSV to JSON | Convert ING bank statement</title>
+</head>
+<style>
+  html {
+    font-family: sans-serif;
+  }
+
+  body {
+    margin: 0;
+    padding: 1rem;
+  }
+
+  .drop-zone {
+    border-radius: 1em;
+    border: 4px dashed rgba(0, 0, 0, 0.2);
+    color: rgba(0, 0, 0, 0.5);
+    padding: 1em;
+    text-align: center;
+    line-height: 5em;
+  }
+
+  .download-button {
+    padding: 0;
+    border: none;
+    color: rgb(0, 89, 255);
+    background: transparent;
+    cursor: pointer;
+    font-size: 1rem;
+    border-bottom: 1px solid rgb(0, 89, 255);
+  }
+
+  .branding {
+    color: orange;
+  }
+
+  .hidden {
+    display: none;
+  }
+</style>
+
+<body>
+  <div class="drop-zone" id="drop_zone">
+    <span id="upload_ready">Drag and drop your <span class="branding">ING</span> bank statement (CSV format) here to convert it to JSON</span>
+    <span id="download_ready" class="hidden"><input class="download-button" id="download_button" type="button" value="Download"> your bank statement</span>
+  </div>
+
+  <script>
+    (function convertor() {
+
+      var data;
+      var fileName = "bank-statement.json";
+
+      var dropZone = document.getElementById('drop_zone');
+      var downloadButton = document.getElementById('download_button');
+      var uploadReady = document.getElementById("upload_ready");
+      var downloadReady = document.getElementById("download_ready");
+      dropZone.addEventListener('dragover', handleDragOver, false);
+      dropZone.addEventListener('drop', handleFileSelect, false);
+      downloadButton.addEventListener('click', handleFileDownload, false);
+
+      var saveData = (function () {
+        var invisibleLink = document.createElement("a");
+        document.body.appendChild(invisibleLink);
+        invisibleLink.style = "display: none";
+        return function (data, fileName) {
+          var json = JSON.stringify(data),
+            blob = new Blob([json], { type: "octet/stream" }),
+            url = window.URL.createObjectURL(blob);
+          invisibleLink.href = url;
+          invisibleLink.download = fileName;
+          invisibleLink.click();
+          window.URL.revokeObjectURL(url);
+        };
+      }());
+
+      function handleFileSelect(evt) {
+        evt.stopPropagation();
+        evt.preventDefault();
+
+        var file = evt.dataTransfer.files[0];
+
+        if (file) {
+          var reader = new FileReader();
+          reader.onload = function (event) {
+            data = convertToJson(event.target.result);
+          uploadReady.classList.add("hidden");
+          downloadReady.classList.remove("hidden");
+          }
+          reader.readAsText(file);
+        }
+      }
+
+      function normalizeInput(content) {
+        return content.split("\n").slice(1)
+          .slice(0, -4).join("\n")
+          .replace(/,,,\n,,, /g, " | ")
+          .replace(/"\n,,,/g, ";")
+          .replace(/",\n,,,/g, ";;")
+          .replace(/,,,\n,,,/g, ";")
+          .replace(/,,,"/g, ";;")
+          .replace(/,,"/g, ";")
+          .replace(/,,,\n/g, "\n")
+          .replace(/,,,/g, ";")
+          .replace(/,,/g, ";")
+          .replace(/,,,/g, ";")
+          .replace(/,\n;/g, ";;")
+          .replace(/\n;/g, ";;")
+          .replace(/Auth\. code/g, "Authorization")
+          .split("\n");
+      }
+
+      function convertToJson(content) {
+        var contentLines = normalizeInput(content);
+        var obj = {};
+        obj.transactions = [];
+        contentLines.forEach(function (transaction, index) {
+          obj.transactions.push(buildTransactionObj(transaction));
+        })
+        return obj;
+      }
+
+      function convertDate(str) {
+        var timeArr = str.split(" ");
+        var month = timeArr[1];
+        var monthsRoArr = ["ianuarie", "februarie", "martie", "aprilie", "mai", "iunie", "iulie", "august", "septembrie", "octombrie", "noiembrie", "decembrie"];
+        var monthsEnArr = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        var date;
+        if (monthsRoArr.indexOf(month) !== -1) {
+          month = ("0" + (monthsRoArr.indexOf(month) + 1)).slice(-2);
+          date = [timeArr[2], month, timeArr[0]].join("-");
+        } else if (monthsEnArr.indexOf(month) !== -1) {
+          month = ("0" + (monthsEnArr.indexOf(month) + 1)).slice(-2);
+          date = [timeArr[2], month, timeArr[0]].join("-");
+        } else {
+          date = str.split("-").reverse().join("-");
+        }
+        return date;
+      }
+
+      function buildTransactionObj(transaction) {
+
+        var transObj = {};
+        var transactionInfo = transaction.split(";");
+
+        transObj.details = {};
+        transObj.details.other = "";
+
+        transactionInfo.forEach(function (item, index) {
+          switch (index) {
+            case 0:
+              transObj.date = convertDate(item);
+              break;
+            case 1:
+              transObj.details.type = item;
+              break;
+            case 2:
+              if (item) {
+                transObj.debit = convertAmount(item);
+              }
+              break;
+            case 3:
+              if (item) {
+                transObj.credit = convertAmount(item);
+              }
+              break;
+            default:
+              var tempArr = item.split(": ");
+              if (item.indexOf("Data") === 0 || item.indexOf("Date") === 0) {
+                tempArr = item.replace(/: /g, "::").split(" ");
+                transObj.details.date = convertDate(tempArr[0].split("::")[1]);
+                if (tempArr.length > 1) {
+                  transObj.details.authorization = tempArr[1].split("::")[1];
+                }
+              } else {
+                var detailValue = tempArr[1];
+                if (detailValue) {
+                  switch (tempArr[0]) {
+                    case "Details":
+                    case "Detalii":
+                      transObj.details.other += detailValue;
+                      break;
+                    case "Ordering party":
+                    case "Ordonator":
+                      transObj.details.sender = detailValue;
+                      break;
+                    case "From account":
+                    case "To account":
+                    case "Din contul":
+                    case "In contul":
+                      transObj.details.account = detailValue;
+                      break;
+                    case "Reference number":
+                    case "Referinta":
+                      transObj.details.reference = detailValue;
+                      break;
+                    case "Bank":
+                    case "Banca":
+                      transObj.details.bank = detailValue;
+                      break;
+                    case "Beneficiary":
+                    case "Beneficiar":
+                      transObj.details.beneficiary = detailValue;
+                      break;
+                    case "Card no":
+                    case "Nr. card":
+                      transObj.details.card_number = detailValue;
+                      break;
+                    case "Terminal":
+                      transObj.details.terminal = detailValue;
+                      break;
+                    default:
+                      transObj.details.other += detailValue;
+                      break;
+                  }
+                }
+              }
+              break;
+          }
+        });
+
+        if (transObj.details.other === "") {
+          delete transObj.details.other;
+        }
+
+        return transObj;
+      }
+
+      function convertAmount(amount) {
+        var str = amount.replace(/\./g, "").replace(",", "");
+        return [str.slice(0, -2), ".", str.slice(-2)].join("");
+      }
+
+      function handleDragOver(event) {
+        event.stopPropagation();
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+      }
+
+      function handleFileDownload(event) {
+        saveData(data, fileName);
+        uploadReady.classList.remove("hidden");
+        downloadReady.classList.add("hidden");
+
+      }
+    })();
+  </script>
+</body>
+
+</html>
