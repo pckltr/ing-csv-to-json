@@ -3,35 +3,42 @@
 
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CSV to JSON | Convert ING bank statement</title>
 </head>
 <style>
   html {
     font-family: sans-serif;
+    color: rgb(155, 167, 182);
+    height: 100vh;
   }
 
-  body {
+  .main {
     margin: 0;
-    padding: 1rem;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(to bottom, #4781ff, #1f5be2 50%, #fbfcfd 50%, #f2f6ff);
   }
 
   .drop-zone {
     border-radius: 1em;
-    border: 4px dashed rgba(0, 0, 0, 0.2);
-    color: rgba(0, 0, 0, 0.5);
-    padding: 1em;
+    border: 2px dashed rgba(170, 190, 228, 0.5);
     text-align: center;
-    line-height: 5em;
+    min-height: 8rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
   }
 
-  .download-button {
+  .button {
     padding: 0;
     border: none;
     color: rgb(0, 89, 255);
     background: transparent;
     cursor: pointer;
     font-size: 1rem;
-    border-bottom: 1px solid rgb(0, 89, 255);
   }
 
   .branding {
@@ -41,12 +48,54 @@
   .hidden {
     display: none;
   }
+
+  .card {
+    background: #FCFDFE;
+    padding: 1em;
+    border-radius: 1em;
+    min-width: 30rem;
+    box-shadow: 0px 1rem 8rem 1rem rgba(0, 0, 0, 0.15);
+    margin: auto;
+  }
+
+  .container {
+    max-width: 20rem;
+  }
+
+  .description {
+    margin: 2rem 0 4rem 0;
+  }
+
+  .title {
+    font-size: 1.4rem;
+    text-align: center;
+    margin-bottom: 1rem;
+  }
+
+  .subtitle {
+    font-size: 0.8rem;
+    text-align: center;
+  }
 </style>
 
-<body>
-  <div class="drop-zone" id="drop_zone">
-    <span id="upload_ready">Drag and drop your <span class="branding">ING</span> bank statement (CSV format) here to convert it to JSON</span>
-    <span id="download_ready" class="hidden"><input class="download-button" id="download_button" type="button" value="Download"> your bank statement</span>
+<body class="main">
+  <div class="card">
+    <div class="description">
+      <div class="title">Submit your <br /><span class="branding">ING</span> bank statement</div>
+      <div class="subtitle">In English or Romanian</div>
+    </div>
+    <div class="drop-zone" id="drop_zone">
+      <div class="container">
+        <div id="upload_ready">Drag and drop your file here or <input class="browse-button button" id="browse_button"
+            type="button" value="browse"> for a file to upload</div>
+        <div id="download_ready" class="hidden"><input class="download-button button" id="download_button" type="button"
+            value="Download"> your bank statement</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hidden">
+    <input type="file" class="button" id="hidden_browse_button" accept=".csv">
   </div>
 
   <script>
@@ -59,9 +108,22 @@
       var downloadButton = document.getElementById('download_button');
       var uploadReady = document.getElementById("upload_ready");
       var downloadReady = document.getElementById("download_ready");
+      var hiddenBrowseButton = document.getElementById("hidden_browse_button");
+      var browseButton = document.getElementById("browse_button");
+
+      browseButton.addEventListener('click', handleFakeClick, false);
+      downloadButton.addEventListener('click', handleFileDownload, false);
       dropZone.addEventListener('dragover', handleDragOver, false);
       dropZone.addEventListener('drop', handleFileSelect, false);
-      downloadButton.addEventListener('click', handleFileDownload, false);
+      hiddenBrowseButton.addEventListener('change', handleFileUpload, false);
+
+      function handleFakeClick() {
+        hiddenBrowseButton.click();
+      }
+
+      function handleFileUpload() {
+        readFile(hiddenBrowseButton.files[0]);
+      }
 
       var saveData = (function () {
         var invisibleLink = document.createElement("a");
@@ -78,39 +140,42 @@
         };
       }());
 
-      function handleFileSelect(evt) {
-        evt.stopPropagation();
-        evt.preventDefault();
+      function handleFileSelect(event) {
+        event.stopPropagation();
+        event.preventDefault();
 
-        var file = evt.dataTransfer.files[0];
+        readFile(event.dataTransfer.files[0]);
+      }
 
+      function readFile(file) {
         if (file) {
           var reader = new FileReader();
           reader.onload = function (event) {
             data = convertToJson(event.target.result);
-          uploadReady.classList.add("hidden");
-          downloadReady.classList.remove("hidden");
+            uploadReady.classList.add("hidden");
+            downloadReady.classList.remove("hidden");
           }
           reader.readAsText(file);
         }
       }
 
       function normalizeInput(content) {
-        return content.split("\n").slice(1)
-          .slice(0, -4).join("\n")
-          .replace(/,,,\n,,, /g, " | ")
-          .replace(/"\n,,,/g, ";")
-          .replace(/",\n,,,/g, ";;")
-          .replace(/,,,\n,,,/g, ";")
-          .replace(/,,,"/g, ";;")
-          .replace(/,,"/g, ";")
-          .replace(/,,,\n/g, "\n")
-          .replace(/,,,/g, ";")
-          .replace(/,,/g, ";")
-          .replace(/,,,/g, ";")
-          .replace(/,\n;/g, ";;")
-          .replace(/\n;/g, ";;")
-          .replace(/Auth\. code/g, "Authorization")
+        return content.split("\n")
+          .slice(1) // remove first line
+          .slice(0, -4) // remove last 4 lines
+          .join("\n")
+          .replace(/,,,\n,,, /g, " | ") // transaction details on same line
+          .replace(/"\n,,,/g, ";") // fix right side of amount for credit in romanian csv
+          .replace(/",\n,,,/g, ";;") // fix right side of amount for debit in romanian csv
+          .replace(/,,,"/g, ";;") // fix left side of amount for debit in romanian csv
+          .replace(/,,"/g, ";") // fix left side of amount for credit in romanian csv
+          .replace(/,,,\n,,,/g, ";") // remove some new lines to create a line per transaction
+          .replace(/,\n,,,/g, ";;") // fix right side of the amount for credit in english csv
+          .replace(/\n,,,/g, ";") // fix right side of the amount for debit in english csv
+          .replace(/,,,\n/g, "\n") // remove commas at the end of the line
+          .replace(/,,,/g, ";;") // fix left side of the amount for credit in english csv
+          .replace(/,,/g, ";") // fix left side of the amount for debit in english csv
+          .replace(/Auth\. code/g, "Authorization") // simplify patterns
           .split("\n");
       }
 
@@ -118,9 +183,11 @@
         var contentLines = normalizeInput(content);
         var obj = {};
         obj.transactions = [];
+
         contentLines.forEach(function (transaction, index) {
           obj.transactions.push(buildTransactionObj(transaction));
         })
+
         return obj;
       }
 
@@ -156,14 +223,17 @@
               transObj.date = convertDate(item);
               break;
             case 1:
-              transObj.details.type = item;
+              // just a placeholder left from normalization
               break;
             case 2:
+              transObj.details.type = item;
+              break;
+            case 3:
               if (item) {
                 transObj.debit = convertAmount(item);
               }
               break;
-            case 3:
+            case 4:
               if (item) {
                 transObj.credit = convertAmount(item);
               }
